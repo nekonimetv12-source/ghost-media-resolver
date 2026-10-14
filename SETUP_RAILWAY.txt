@@ -1,0 +1,17 @@
+GHOST MEDIA RESOLVER - RAILWAY
+
+UPLOAD KE GITHUB:
+- Dockerfile
+- package.json
+- server.mjs
+- SETUP_RAILWAY.txt (opsional, hanya petunjuk)
+
+RAILWAY:
+1. New Project > GitHub Repository > pilih repo ghost-media-resolver.
+2. Tambahkan Variable:
+   RESOLVER_TOKEN = buat password rahasia panjang.
+3. Deploy.
+4. Settings > Networking > Generate Domain.
+5. Tes https://DOMAIN/health
+
+Jangan upload ZIP langsung ke GitHub. Extract dulu dan upload file di atas.
