@@ -15,7 +15,8 @@ const YTDLP_BIN = process.env.YTDLP_BIN || 'yt-dlp';
 const FFMPEG_BIN = process.env.FFMPEG_BIN || 'ffmpeg';
 const FFPROBE_BIN = process.env.FFPROBE_BIN || 'ffprobe';
 const SPOTIFY_OEMBED_ENDPOINT = process.env.SPOTIFY_OEMBED_ENDPOINT || 'https://open.spotify.com/oembed';
-const RESOLVER_VERSION = '1.0.4';
+const TIKTOK_USER_AGENT = process.env.TIKTOK_USER_AGENT || 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36';
+const RESOLVER_VERSION = '1.0.5';
 let active = 0;
 
 function clampInt(v, min, max, fallback) {
@@ -105,6 +106,9 @@ function classifyMediaToolFailure(bin, stderr, fallbackMessage) {
     if (/video unavailable|this video is unavailable|has been removed|not available in your country/i.test(raw)) {
       return coded('Video YouTube tidak tersedia untuk resolver.', 'YOUTUBE_UNAVAILABLE', 422);
     }
+    if (/\[TikTok\].*Unexpected response from webpage request/i.test(raw) || /Unexpected response from webpage request/i.test(raw) && /TikTok/i.test(raw)) {
+      return coded('TikTok menolak respons extractor pada request ini. Resolver sudah memakai compatibility mode terbaru; coba link TikTok publik lain atau tunggu update extractor.', 'TIKTOK_EXTRACTOR_RESPONSE', 422);
+    }
   }
   return coded(fallbackMessage, 'MEDIA_EXTRACT_FAILED', 422);
 }
@@ -129,6 +133,12 @@ function ytdlpCommonArgs(target) {
     '--retries', '3',
     '--socket-timeout', '20'
   ];
+  try {
+    const provider = providerFor(new URL(target));
+    if (provider === 'tiktok') {
+      args.push('--user-agent', TIKTOK_USER_AGENT);
+    }
+  } catch {}
   return args;
 }
 async function ytdlpMetadata(target) {
