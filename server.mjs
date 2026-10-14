@@ -15,7 +15,7 @@ const YTDLP_BIN = process.env.YTDLP_BIN || 'yt-dlp';
 const FFMPEG_BIN = process.env.FFMPEG_BIN || 'ffmpeg';
 const FFPROBE_BIN = process.env.FFPROBE_BIN || 'ffprobe';
 const SPOTIFY_OEMBED_ENDPOINT = process.env.SPOTIFY_OEMBED_ENDPOINT || 'https://open.spotify.com/oembed';
-const RESOLVER_VERSION = '1.0.3';
+const RESOLVER_VERSION = '1.0.4';
 let active = 0;
 
 function clampInt(v, min, max, fallback) {
@@ -38,6 +38,7 @@ function providerFor(u) {
   if (h === 'youtu.be' || h === 'youtube.com' || h.endsWith('.youtube.com')) return 'youtube';
   if (h === 'open.spotify.com' || h.endsWith('.spotify.com')) return 'spotify';
   if (h === 'soundcloud.com' || h.endsWith('.soundcloud.com')) return 'soundcloud';
+  if (h === 'tiktok.com' || h.endsWith('.tiktok.com')) return 'tiktok';
   return 'direct';
 }
 function normalizeProviderUrl(raw) {
@@ -185,7 +186,7 @@ async function resolveOne(sourceUrl,maxBytes,maxDuration) {
   const u=await assertPublicUrl(sourceUrl); const provider=providerFor(u); const dir=await mkdtemp(join(tmpdir(),'ghost-media-'));
   try{
     let file,title='Imported audio',duration=null;
-    if(provider==='youtube'||provider==='soundcloud'){
+    if(provider==='youtube'||provider==='soundcloud'||provider==='tiktok'){
       const meta=await ytdlpMetadata(sourceUrl);duration=Number(meta.duration)||null;title=cleanText(meta.title||meta.fulltitle||'Imported audio',180);if(duration&&duration>maxDuration)throw coded(`Durasi source ${Math.round(duration)}s melebihi batas import ${maxDuration}s`,'MEDIA_TOO_LONG',422);file=await ytdlpToMp3(sourceUrl,dir);
     }else if(provider==='spotify'){
       const sp=await spotifyTrackMetadata(sourceUrl);
@@ -203,7 +204,7 @@ function authorized(req){if(!RESOLVER_TOKEN)return true;const h=String(req.heade
 
 const server=http.createServer(async(req,res)=>{
   try{
-    if(req.method==='GET'&&req.url==='/health')return json(res,200,{ok:true,service:'Ghost Media Resolver',version:RESOLVER_VERSION,active,maxConcurrent:MAX_CONCURRENT,capabilities:{youtube:'best-effort-public',spotify:'metadata-only',soundcloud:'public',direct:'audio'}});
+    if(req.method==='GET'&&req.url==='/health')return json(res,200,{ok:true,service:'Ghost Media Resolver',version:RESOLVER_VERSION,active,maxConcurrent:MAX_CONCURRENT,capabilities:{youtube:'best-effort-public',spotify:'metadata-only',soundcloud:'public',tiktok:'public',direct:'audio'}});
     if(req.method!=='POST'||req.url!=='/v1/resolve')return json(res,404,{ok:false,error:'NOT_FOUND'});
     if(!authorized(req))return json(res,401,{ok:false,error:'UNAUTHORIZED',message:'Resolver token tidak valid'});
     if(active>=MAX_CONCURRENT)return json(res,429,{ok:false,error:'BUSY',message:'Resolver sedang penuh. Coba lagi sebentar.'});

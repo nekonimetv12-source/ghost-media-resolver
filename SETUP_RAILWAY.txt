@@ -4,7 +4,7 @@ UPDATE FROM v1.0.2
 1. Replace Dockerfile, package.json, server.mjs, SETUP_RAILWAY.txt in the GitHub repo.
 2. Commit changes. Railway redeploys automatically.
 3. Keep RESOLVER_TOKEN unchanged.
-4. Open /health after deployment and confirm version 1.0.3.
+4. Open /health after deployment and confirm version 1.0.4.
 
 Fixes
 - Canonicalizes YouTube watch URLs and strips playlist/radio tracking parameters before yt-dlp.
@@ -16,3 +16,9 @@ Fixes
 Important
 - YouTube on datacenter IPs remains best-effort. A real YouTube anti-bot challenge cannot be guaranteed away by URL normalization.
 - Spotify official URLs provide metadata, not a downloadable full-track file to this resolver.
+
+V1.0.4 TikTok update:
+- TikTok public video/share URLs are recognized as provider=tiktok.
+- TikTok media is resolved with yt-dlp and converted to MP3 using the existing FFmpeg pipeline.
+- SoundCloud behavior is unchanged.
+- Spotify remains metadata-only and YouTube remains best-effort on datacenter IPs.
