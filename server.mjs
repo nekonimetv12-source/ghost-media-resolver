@@ -15,7 +15,7 @@ const YTDLP_BIN = process.env.YTDLP_BIN || 'yt-dlp';
 const FFMPEG_BIN = process.env.FFMPEG_BIN || 'ffmpeg';
 const FFPROBE_BIN = process.env.FFPROBE_BIN || 'ffprobe';
 const SPOTIFY_OEMBED_ENDPOINT = process.env.SPOTIFY_OEMBED_ENDPOINT || 'https://open.spotify.com/oembed';
-const RESOLVER_VERSION = '1.0.2';
+const RESOLVER_VERSION = '1.0.3';
 let active = 0;
 
 function clampInt(v, min, max, fallback) {
@@ -39,6 +39,28 @@ function providerFor(u) {
   if (h === 'open.spotify.com' || h.endsWith('.spotify.com')) return 'spotify';
   if (h === 'soundcloud.com' || h.endsWith('.soundcloud.com')) return 'soundcloud';
   return 'direct';
+}
+function normalizeProviderUrl(raw) {
+  let u;
+  try { u = new URL(raw); } catch { return raw; }
+  const provider = providerFor(u);
+  if (provider === 'youtube') {
+    let id = '';
+    const host = u.hostname.toLowerCase().replace(/^www\./, '');
+    if (host === 'youtu.be') id = u.pathname.split('/').filter(Boolean)[0] || '';
+    else if (u.pathname === '/watch') id = u.searchParams.get('v') || '';
+    else {
+      const m = u.pathname.match(/^\/(?:shorts|live|embed)\/([A-Za-z0-9_-]{6,})/);
+      if (m) id = m[1];
+    }
+    if (id && /^[A-Za-z0-9_-]{6,}$/.test(id)) return `https://www.youtube.com/watch?v=${id}`;
+  }
+  if (provider === 'spotify') {
+    const m = u.pathname.match(/^\/track\/([A-Za-z0-9]+)/);
+    if (m) return `https://open.spotify.com/track/${m[1]}`;
+  }
+  u.hash = '';
+  return u.toString();
 }
 function isPrivateIp(ip) {
   if (!net.isIP(ip)) return false;
@@ -120,7 +142,7 @@ async function ytdlpToMp3(target,dir) {
   if(!files.length)throw coded('MP3 hasil resolver tidak ditemukan','OUTPUT_MISSING',500);
   return join(dir,files[0]);
 }
-async function spotifyTrackTarget(sourceUrl) {
+async function spotifyTrackMetadata(sourceUrl) {
   const u=new URL(sourceUrl);
   if(!/^\/track\/[A-Za-z0-9]+/.test(u.pathname))throw coded('Saat ini Spotify URL import mendukung link track tunggal, bukan album/playlist.','SPOTIFY_TRACK_ONLY',422);
   const endpoint=`${SPOTIFY_OEMBED_ENDPOINT}?url=${encodeURIComponent(sourceUrl)}`;
@@ -128,7 +150,7 @@ async function spotifyTrackTarget(sourceUrl) {
   let r; try{r=await fetch(endpoint,{headers:{'user-agent':'GhostStudioMediaResolver/1.0'},signal:ctl.signal})}catch{throw coded('Metadata Spotify gagal diambil','SPOTIFY_METADATA_FAILED',502)}finally{clearTimeout(timer)}
   if(!r.ok)throw coded(`Metadata Spotify HTTP ${r.status}`,'SPOTIFY_METADATA_FAILED',422);
   const d=await r.json(); const title=cleanText(d.title,180),artist=cleanText(d.author_name,120); if(!title)throw coded('Judul track Spotify tidak ditemukan','SPOTIFY_METADATA_FAILED',422);
-  return {target:`ytsearch1:${[title,artist,'audio'].filter(Boolean).join(' ')}`,title:artist?`${title} — ${artist}`:title};
+  return {title:artist?`${title} — ${artist}`:title};
 }
 async function downloadPublic(url,dir,maxBytes) {
   let current=await assertPublicUrl(url);
@@ -159,13 +181,16 @@ async function convertToMp3(input,dir) {
   return out;
 }
 async function resolveOne(sourceUrl,maxBytes,maxDuration) {
+  sourceUrl=normalizeProviderUrl(sourceUrl);
   const u=await assertPublicUrl(sourceUrl); const provider=providerFor(u); const dir=await mkdtemp(join(tmpdir(),'ghost-media-'));
   try{
     let file,title='Imported audio',duration=null;
     if(provider==='youtube'||provider==='soundcloud'){
       const meta=await ytdlpMetadata(sourceUrl);duration=Number(meta.duration)||null;title=cleanText(meta.title||meta.fulltitle||'Imported audio',180);if(duration&&duration>maxDuration)throw coded(`Durasi source ${Math.round(duration)}s melebihi batas import ${maxDuration}s`,'MEDIA_TOO_LONG',422);file=await ytdlpToMp3(sourceUrl,dir);
     }else if(provider==='spotify'){
-      const sp=await spotifyTrackTarget(sourceUrl);title=sp.title;const meta=await ytdlpMetadata(sp.target);duration=Number(meta.duration)||null;if(duration&&duration>maxDuration)throw coded(`Durasi source ${Math.round(duration)}s melebihi batas import ${maxDuration}s`,'MEDIA_TOO_LONG',422);file=await ytdlpToMp3(sp.target,dir);
+      const sp=await spotifyTrackMetadata(sourceUrl);
+      title=sp.title;
+      throw coded('Link Spotify berhasil dikenali, tetapi Spotify tidak menyediakan file full-track yang dapat di-import oleh resolver ini. Gunakan file audio milikmu atau direct audio URL untuk track tersebut.','SPOTIFY_FULL_AUDIO_UNAVAILABLE',422);
     }else{
       const d=await downloadPublic(sourceUrl,dir,maxBytes);duration=await probeDuration(d.input);if(duration&&duration>maxDuration)throw coded(`Durasi source ${Math.round(duration)}s melebihi batas import ${maxDuration}s`,'MEDIA_TOO_LONG',422);file=await convertToMp3(d.input,dir);title=safeName(u.pathname.split('/').pop()?.replace(/\.[^.]+$/,'')||u.hostname);
     }
@@ -178,7 +203,7 @@ function authorized(req){if(!RESOLVER_TOKEN)return true;const h=String(req.heade
 
 const server=http.createServer(async(req,res)=>{
   try{
-    if(req.method==='GET'&&req.url==='/health')return json(res,200,{ok:true,service:'Ghost Media Resolver',version:RESOLVER_VERSION,active,maxConcurrent:MAX_CONCURRENT});
+    if(req.method==='GET'&&req.url==='/health')return json(res,200,{ok:true,service:'Ghost Media Resolver',version:RESOLVER_VERSION,active,maxConcurrent:MAX_CONCURRENT,capabilities:{youtube:'best-effort-public',spotify:'metadata-only',soundcloud:'public',direct:'audio'}});
     if(req.method!=='POST'||req.url!=='/v1/resolve')return json(res,404,{ok:false,error:'NOT_FOUND'});
     if(!authorized(req))return json(res,401,{ok:false,error:'UNAUTHORIZED',message:'Resolver token tidak valid'});
     if(active>=MAX_CONCURRENT)return json(res,429,{ok:false,error:'BUSY',message:'Resolver sedang penuh. Coba lagi sebentar.'});

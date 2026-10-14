@@ -1,14 +1,18 @@
-GHOST MEDIA RESOLVER - RAILWAY v1.0.2
+GHOST MEDIA RESOLVER - RAILWAY v1.0.3
 
-UPDATE FROM v1.0.1
-1. Replace Dockerfile, package.json, server.mjs in GitHub repo.
-2. Commit changes. Railway will redeploy automatically.
-3. Keep the existing RESOLVER_TOKEN variable unchanged.
-4. After deployment, open /health. It should show version 1.0.2.
+UPDATE FROM v1.0.2
+1. Replace Dockerfile, package.json, server.mjs, SETUP_RAILWAY.txt in the GitHub repo.
+2. Commit changes. Railway redeploys automatically.
+3. Keep RESOLVER_TOKEN unchanged.
+4. Open /health after deployment and confirm version 1.0.3.
 
-YouTube compatibility fix:
-- installs official yt-dlp default dependencies including yt-dlp-ejs
-- enables Node 22 as yt-dlp JavaScript runtime
-- keeps clean handling for genuine YouTube anti-bot rejection
+Fixes
+- Canonicalizes YouTube watch URLs and strips playlist/radio tracking parameters before yt-dlp.
+- Canonicalizes Spotify track URLs and strips share tracking parameters.
+- Removes the old hidden Spotify -> YouTube search fallback that caused Spotify links to report YouTube anti-bot errors.
+- Spotify now reports a provider-specific status instead of pretending it can fetch full-track audio.
+- Existing YouTube EJS/Node runtime support remains enabled.
 
-No cookies or proxies are required by this update.
+Important
+- YouTube on datacenter IPs remains best-effort. A real YouTube anti-bot challenge cannot be guaranteed away by URL normalization.
+- Spotify official URLs provide metadata, not a downloadable full-track file to this resolver.
