@@ -1,17 +1,14 @@
-GHOST MEDIA RESOLVER - RAILWAY
+GHOST MEDIA RESOLVER - RAILWAY v1.0.2
 
-UPLOAD KE GITHUB:
-- Dockerfile
-- package.json
-- server.mjs
-- SETUP_RAILWAY.txt (opsional, hanya petunjuk)
+UPDATE FROM v1.0.1
+1. Replace Dockerfile, package.json, server.mjs in GitHub repo.
+2. Commit changes. Railway will redeploy automatically.
+3. Keep the existing RESOLVER_TOKEN variable unchanged.
+4. After deployment, open /health. It should show version 1.0.2.
 
-RAILWAY:
-1. New Project > GitHub Repository > pilih repo ghost-media-resolver.
-2. Tambahkan Variable:
-   RESOLVER_TOKEN = buat password rahasia panjang.
-3. Deploy.
-4. Settings > Networking > Generate Domain.
-5. Tes https://DOMAIN/health
+YouTube compatibility fix:
+- installs official yt-dlp default dependencies including yt-dlp-ejs
+- enables Node 22 as yt-dlp JavaScript runtime
+- keeps clean handling for genuine YouTube anti-bot rejection
 
-Jangan upload ZIP langsung ke GitHub. Extract dulu dan upload file di atas.
+No cookies or proxies are required by this update.

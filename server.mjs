@@ -15,6 +15,7 @@ const YTDLP_BIN = process.env.YTDLP_BIN || 'yt-dlp';
 const FFMPEG_BIN = process.env.FFMPEG_BIN || 'ffmpeg';
 const FFPROBE_BIN = process.env.FFPROBE_BIN || 'ffprobe';
 const SPOTIFY_OEMBED_ENDPOINT = process.env.SPOTIFY_OEMBED_ENDPOINT || 'https://open.spotify.com/oembed';
+const RESOLVER_VERSION = '1.0.2';
 let active = 0;
 
 function clampInt(v, min, max, fallback) {
@@ -68,6 +69,22 @@ async function assertPublicUrl(raw) {
   return u;
 }
 function coded(message, code='RESOLVE_FAILED', status=400) { const e = new Error(message); e.code=code; e.status=status; return e; }
+function classifyMediaToolFailure(bin, stderr, fallbackMessage) {
+  const tool = String(bin || '').toLowerCase();
+  const raw = String(stderr || '');
+  if (tool.includes('yt-dlp') || tool.includes('ytdlp')) {
+    if (/sign in to confirm you(?:'|’)re not a bot|sign in to confirm you are not a bot|use --cookies-from-browser|use --cookies for the authentication/i.test(raw)) {
+      return coded('YouTube meminta verifikasi anti-bot untuk video ini. Import link dibatalkan dan token tidak dipotong. Coba link lain atau upload file audio.', 'YOUTUBE_BOT_CHECK', 422);
+    }
+    if (/private video|this video is private/i.test(raw)) {
+      return coded('Video YouTube ini private dan tidak dapat di-import.', 'YOUTUBE_PRIVATE', 422);
+    }
+    if (/video unavailable|this video is unavailable|has been removed|not available in your country/i.test(raw)) {
+      return coded('Video YouTube tidak tersedia untuk resolver.', 'YOUTUBE_UNAVAILABLE', 422);
+    }
+  }
+  return coded(fallbackMessage, 'MEDIA_EXTRACT_FAILED', 422);
+}
 function run(bin,args,{timeoutMs=120000,cwd}={}) {
   return new Promise((resolve,reject)=>{
     const cp=spawn(bin,args,{cwd,stdio:['ignore','pipe','pipe']});
@@ -76,17 +93,29 @@ function run(bin,args,{timeoutMs=120000,cwd}={}) {
     cp.stdout.on('data',d=>{if(Buffer.concat(out).length<4*1024*1024)out.push(d)});
     cp.stderr.on('data',d=>{if(Buffer.concat(err).length<2*1024*1024)err.push(d)});
     cp.on('error',e=>{if(done)return;done=true;clearTimeout(timer);reject(coded(`Executable ${bin} tidak tersedia: ${e.message}`,'RESOLVER_DEPENDENCY_MISSING',500))});
-    cp.on('close',code=>{if(done)return;done=true;clearTimeout(timer);const stdout=Buffer.concat(out).toString('utf8'),stderr=Buffer.concat(err).toString('utf8');if(code===0)resolve({stdout,stderr});else reject(coded(cleanText(stderr.split('\n').filter(Boolean).slice(-3).join(' · ')||`${bin} exit ${code}`,500),'MEDIA_EXTRACT_FAILED',422))});
+    cp.on('close',code=>{if(done)return;done=true;clearTimeout(timer);const stdout=Buffer.concat(out).toString('utf8'),stderr=Buffer.concat(err).toString('utf8');if(code===0)resolve({stdout,stderr});else{const fallback=cleanText(stderr.split('\n').filter(Boolean).slice(-3).join(' · ')||`${bin} exit ${code}`,500);reject(classifyMediaToolFailure(bin,stderr,fallback))}});
   });
 }
+function ytdlpCommonArgs(target) {
+  const args = [
+    '--no-playlist',
+    '--no-warnings',
+    '--quiet',
+    '--js-runtimes', 'node',
+    '--extractor-retries', '3',
+    '--retries', '3',
+    '--socket-timeout', '20'
+  ];
+  return args;
+}
 async function ytdlpMetadata(target) {
-  const {stdout}=await run(YTDLP_BIN,['--no-playlist','--no-warnings','--quiet','--dump-single-json','--skip-download',target],{timeoutMs:60000});
+  const {stdout}=await run(YTDLP_BIN,[...ytdlpCommonArgs(target),'--dump-single-json','--skip-download',target],{timeoutMs:60000});
   let data; try{data=JSON.parse(stdout)}catch{throw coded('Metadata source tidak dapat dibaca','METADATA_FAILED',422)}
   return data || {};
 }
 async function ytdlpToMp3(target,dir) {
   const out=join(dir,'source.%(ext)s');
-  await run(YTDLP_BIN,['--no-playlist','--no-warnings','--quiet','--retries','2','--socket-timeout','20','-x','--audio-format','mp3','--audio-quality','0','--postprocessor-args','ffmpeg:-ar 44100','-o',out,target],{timeoutMs:180000});
+  await run(YTDLP_BIN,[...ytdlpCommonArgs(target),'-x','--audio-format','mp3','--audio-quality','0','--postprocessor-args','ffmpeg:-ar 44100','-o',out,target],{timeoutMs:180000});
   const files=(await readdir(dir)).filter(x=>x.toLowerCase().endsWith('.mp3'));
   if(!files.length)throw coded('MP3 hasil resolver tidak ditemukan','OUTPUT_MISSING',500);
   return join(dir,files[0]);
@@ -149,7 +178,7 @@ function authorized(req){if(!RESOLVER_TOKEN)return true;const h=String(req.heade
 
 const server=http.createServer(async(req,res)=>{
   try{
-    if(req.method==='GET'&&req.url==='/health')return json(res,200,{ok:true,service:'Ghost Media Resolver',active,maxConcurrent:MAX_CONCURRENT});
+    if(req.method==='GET'&&req.url==='/health')return json(res,200,{ok:true,service:'Ghost Media Resolver',version:RESOLVER_VERSION,active,maxConcurrent:MAX_CONCURRENT});
     if(req.method!=='POST'||req.url!=='/v1/resolve')return json(res,404,{ok:false,error:'NOT_FOUND'});
     if(!authorized(req))return json(res,401,{ok:false,error:'UNAUTHORIZED',message:'Resolver token tidak valid'});
     if(active>=MAX_CONCURRENT)return json(res,429,{ok:false,error:'BUSY',message:'Resolver sedang penuh. Coba lagi sebentar.'});
